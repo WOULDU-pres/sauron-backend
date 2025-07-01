@@ -1,6 +1,6 @@
 package com.sauron.common.config;
 
-import com.google.ai.client.generativeai.GenerativeModel;
+import com.google.genai.Client;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -17,7 +17,7 @@ public class GeminiConfig {
     @Value("${gemini.api.key}")
     private String apiKey;
     
-    @Value("${gemini.api.model:gemini-1.5-flash}")
+    @Value("${gemini.api.model:gemini-2.5-flash}")
     private String modelName;
     
     @Value("${gemini.api.timeout:30s}")
@@ -27,20 +27,36 @@ public class GeminiConfig {
     private int maxRetries;
     
     /**
-     * Gemini Generative Model 빈 생성
+     * Gemini Client 빈 생성
      */
     @Bean
-    public GenerativeModel generativeModel() {
+    public Client geminiClient() {
         if (apiKey == null || apiKey.trim().isEmpty() || "your-api-key-here".equals(apiKey)) {
             log.warn("Gemini API key not configured. Using stub implementation.");
             return null; // 스텁 모드로 동작
         }
         
-        GenerativeModel model = new GenerativeModel(modelName, apiKey);
-        
-        log.info("Gemini GenerativeModel configured - Model: {}, Timeout: {}, MaxRetries: {}", 
-                modelName, timeout, maxRetries);
-        
-        return model;
+        try {
+            // GEMINI_API_KEY 환경 변수 설정
+            System.setProperty("GEMINI_API_KEY", apiKey);
+            
+            Client client = new Client();
+            
+            log.info("Gemini Client configured - Model: {}, Timeout: {}, MaxRetries: {}", 
+                    modelName, timeout, maxRetries);
+            
+            return client;
+        } catch (Exception e) {
+            log.error("Failed to initialize Gemini client", e);
+            return null;
+        }
+    }
+    
+    /**
+     * 모델명 반환
+     */
+    @Bean
+    public String geminiModelName() {
+        return modelName;
     }
 }

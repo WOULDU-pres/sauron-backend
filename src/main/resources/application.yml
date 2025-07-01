@@ -1,48 +1,72 @@
 spring:
   application:
     name: sauron-backend
-  
-  # Database Configuration
+
+  profiles:
+    active: dev
+
   datasource:
-    url: jdbc:postgresql://localhost:5432/sauron_db
-    username: sauron_user
-    password: sauron_pass
+    url: jdbc:postgresql://localhost:5432/sauron?stringtype=unspecified
+    username: ${DB_USERNAME:sauron}
+    password: ${DB_PASSWORD:password}
     driver-class-name: org.postgresql.Driver
-  
-  # JPA Configuration
+
   jpa:
     hibernate:
-      ddl-auto: update
-    show-sql: true
+      ddl-auto: validate
+    show-sql: ${SHOW_SQL:false}
     properties:
       hibernate:
-        format_sql: true
         dialect: org.hibernate.dialect.PostgreSQLDialect
-  
-  # Redis Configuration
+        format_sql: true
+
+  # Flyway 설정
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 0
+    validate-on-migrate: true
+    out-of-order: false
+
   data:
     redis:
-      host: localhost
-      port: 6379
-      database: 0
-      timeout: 2000ms
-  
-  # Logging Configuration
-  logging:
-    level:
-      com.sauron: DEBUG
-      org.springframework.web: INFO
-      org.hibernate.SQL: DEBUG
-    pattern:
-      console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-wait: -1ms
+          max-idle: 8
+          min-idle: 0
 
-# Server Configuration
+  security:
+    jwt:
+      secret: ${JWT_SECRET:sauron-jwt-secret-key-for-development-only-change-in-production}
+      expiration: ${JWT_EXPIRATION:86400000}
+
+# Sauron 암호화 설정
+sauron:
+  encryption:
+    key: ${SAURON_ENCRYPTION_KEY:}
+    salt: ${SAURON_ENCRYPTION_SALT:sauron-salt-2024}
+
+logging:
+  level:
+    com.sauron: ${LOG_LEVEL:INFO}
+    org.springframework.web: ${WEB_LOG_LEVEL:WARN}
+    org.hibernate.SQL: ${SQL_LOG_LEVEL:WARN}
+    org.springframework.security: ${SECURITY_LOG_LEVEL:WARN}
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
 server:
   port: 8080
   servlet:
     context-path: /api
 
-# OpenAPI Documentation
 springdoc:
   api-docs:
     path: /v3/api-docs
@@ -51,7 +75,6 @@ springdoc:
     tags-sorter: alpha
     operations-sorter: alpha
 
-# Management & Actuator
 management:
   endpoints:
     web:
@@ -59,4 +82,43 @@ management:
         include: health,info,metrics
   endpoint:
     health:
-      show-details: when-authorized 
+      show-details: when-authorized
+
+gemini:
+  api:
+    key: ${GEMINI_API_KEY:}
+    endpoint: ${GEMINI_API_ENDPOINT:https://generativelanguage.googleapis.com/v1beta}
+    model: ${GEMINI_MODEL:gemini-1.5-flash}
+    temperature: ${GEMINI_TEMPERATURE:0.1}
+    max-tokens: ${GEMINI_MAX_TOKENS:1000}
+  cache:
+    enabled: true
+    ttl: 300s
+  worker:
+    enabled: true
+    threads: 4
+    batch-size: 10
+    poll-timeout: 5s
+
+telegram:
+  bot:
+    token: ${TELEGRAM_BOT_TOKEN:}
+    username: ${TELEGRAM_BOT_USERNAME:}
+    enabled: true
+    timeout: 10s
+    max-retries: 3
+    retry-delay: 1s
+  alerts:
+    enabled: true
+    min-confidence: 0.7
+    alert-types: spam,advertisement,abuse,inappropriate,conflict
+    throttle-minutes: 5
+    max-alerts-per-hour: 100
+  channels:
+    default-chat-id: ${TELEGRAM_DEFAULT_CHAT_ID}
+    admin-chat-ids: ${TELEGRAM_ADMIN_CHAT_IDS}
+
+# 관리자 설정
+admin:
+  telegram:
+    chat-id: ${ADMIN_TELEGRAM_CHAT_ID:}

@@ -7,7 +7,10 @@ import com.sauron.common.queue.MessageQueueException;
 import com.sauron.common.queue.MessageQueueService;
 import com.sauron.common.ratelimit.RateLimitException;
 import com.sauron.common.ratelimit.RateLimitService;
+import com.sauron.common.service.LogStorageService;
+import com.sauron.common.utils.EncryptionUtils;
 import com.sauron.common.validation.MessageValidator;
+import com.sauron.filter.service.MessageFilterService;
 import com.sauron.listener.dto.MessageRequest;
 import com.sauron.listener.dto.MessageResponse;
 import com.sauron.listener.entity.Message;
@@ -18,9 +21,6 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
 
@@ -38,6 +38,9 @@ public class MessageService {
     private final MessageQueueService messageQueueService;
     private final MessageRepository messageRepository;
     private final GeminiWorkerClient geminiWorkerClient;
+    private final LogStorageService logStorageService;
+    private final EncryptionUtils encryptionUtils;
+    private final MessageFilterService messageFilterService;
     
     /**
      * 메시지 처리 메인 로직
@@ -130,7 +133,7 @@ public class MessageService {
         
         // 내용 해시 기반 중복 확인 (선택적)
         if (request.getMessageContent() != null) {
-            String contentHash = generateContentHash(request.getMessageContent());
+            String contentHash = encryptionUtils.hashContent(request.getMessageContent());
             if (messageRepository.existsByContentHash(contentHash)) {
                 log.warn("Duplicate content detected for message: {}", request.getMessageId());
                 // 중복 내용이지만 처리는 계속 진행 (로깅만)
@@ -141,34 +144,54 @@ public class MessageService {
     }
     
     /**
-     * 메시지 데이터베이스 저장
+     * 메시지 데이터베이스 저장 (암호화 및 로그 저장 통합)
      */
     private Message saveMessage(MessageRequest request) {
         try {
+            log.debug("Saving message to database with encryption - ID: {}", request.getMessageId());
+            
+            // EncryptionUtils를 사용한 암호화 및 해싱
+            String encryptedContent = encryptionUtils.encrypt(request.getMessageContent());
+            String contentHash = encryptionUtils.hashContent(request.getMessageContent());
+            String senderHash = encryptionUtils.hashSender(request.getSenderHash() != null ? 
+                    request.getSenderHash() : request.getDeviceId());
+            String chatRoomHash = encryptionUtils.hashChatRoom(request.getChatRoomTitle());
+            String anonymizedTitle = encryptionUtils.anonymizeChatRoomTitle(request.getChatRoomTitle());
+            
             Message message = Message.builder()
                     .messageId(request.getMessageId())
                     .deviceId(request.getDeviceId())
-                    .chatRoomId(generateChatRoomHash(request.getChatRoomTitle()))
-                    .chatRoomTitle(anonymizeChatRoomTitle(request.getChatRoomTitle()))
-                    .senderHash(generateSenderHash(request.getSenderHash()))
-                    .contentEncrypted(encryptContent(request.getMessageContent()))
-                    .contentHash(generateContentHash(request.getMessageContent()))
+                    .chatRoomId(chatRoomHash)
+                    .chatRoomTitle(anonymizedTitle)
+                    .senderHash(senderHash)
+                    .contentEncrypted(encryptedContent)
+                    .contentHash(contentHash)
                     .priority(request.getPriority() != null ? request.getPriority() : "normal")
                     .detectionStatus("PENDING")
                     .createdAt(Instant.now())
                     .updatedAt(Instant.now())
                     .build();
             
-            Message saved = messageRepository.save(message);
+            // LogStorageService를 통한 통합 로그 저장
+            Message saved = logStorageService.saveMessageLog(message);
             
-            log.debug("Message saved with ID: {} for message: {}", 
-                     saved.getId(), request.getMessageId());
+            log.info("Message saved with encryption - DB ID: {}, Message ID: {}, Content encrypted: {}", 
+                     saved.getId(), saved.getMessageId(), encryptedContent != null);
             
             return saved;
             
-        } catch (DataAccessException e) {
-            log.error("Database error saving message: {}", request.getMessageId(), e);
-            throw new BusinessException(ErrorCode.DATABASE_ERROR, "Failed to save message to database", e);
+        } catch (LogStorageService.LogStorageException e) {
+            log.error("Log storage error saving message: {}", request.getMessageId(), e);
+            throw new BusinessException(ErrorCode.DATABASE_ERROR, "Failed to save message log", e);
+                 } catch (EncryptionUtils.EncryptionException e) {
+             log.error("Encryption error processing message: {}", request.getMessageId(), e);
+             throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Failed to encrypt message content", e);
+         } catch (DataAccessException e) {
+             log.error("Database error saving message: {}", request.getMessageId(), e);
+             throw new BusinessException(ErrorCode.DATABASE_ERROR, "Failed to save message to database", e);
+         } catch (Exception e) {
+             log.error("Unexpected error saving message: {}", request.getMessageId(), e);
+             throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Failed to save message", e);
         }
     }
     
@@ -230,7 +253,7 @@ public class MessageService {
                 updateMessageStatus(message.getMessageId(), "PROCESSING");
                 
                 // Gemini API를 통한 분석 수행
-                String decryptedContent = decryptContent(message.getContentEncrypted());
+                String decryptedContent = encryptionUtils.decrypt(message.getContentEncrypted());
                 CompletableFuture<GeminiWorkerClient.AnalysisResult> analysisResult = 
                     geminiWorkerClient.analyzeMessage(decryptedContent, message.getChatRoomTitle());
                 
@@ -347,58 +370,4 @@ public class MessageService {
         return messageQueueService.getQueueStatus();
     }
     
-    // 유틸리티 메서드들
-    
-    private String generateContentHash(String content) {
-        if (content == null) return null;
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(content.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hexString = new StringBuilder();
-            for (byte b : hash) {
-                String hex = Integer.toHexString(0xff & b);
-                if (hex.length() == 1) hexString.append('0');
-                hexString.append(hex);
-            }
-            return hexString.toString();
-        } catch (NoSuchAlgorithmException e) {
-            log.error("SHA-256 algorithm not available", e);
-            return content.hashCode() + "";
-        }
-    }
-    
-    private String generateChatRoomHash(String chatRoomTitle) {
-        if (chatRoomTitle == null) return null;
-        return generateContentHash("room:" + chatRoomTitle);
-    }
-    
-    private String generateSenderHash(String senderName) {
-        if (senderName == null) return null;
-        return generateContentHash("sender:" + senderName);
-    }
-    
-    private String anonymizeChatRoomTitle(String title) {
-        if (title == null) return null;
-        // 간단한 익명화 (실제로는 더 복잡한 로직 필요)
-        return title.length() > 10 ? title.substring(0, 10) + "..." : title;
-    }
-    
-    private String encryptContent(String content) {
-        if (content == null) return null;
-        // TODO: 실제 암호화 구현 (AES 등)
-        // 현재는 Base64 인코딩으로 대체
-        return java.util.Base64.getEncoder().encodeToString(content.getBytes(StandardCharsets.UTF_8));
-    }
-    
-    private String decryptContent(String encryptedContent) {
-        if (encryptedContent == null) return null;
-        // TODO: 실제 복호화 구현
-        // 현재는 Base64 디코딩으로 대체
-        try {
-            return new String(java.util.Base64.getDecoder().decode(encryptedContent), StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            log.error("Failed to decrypt content", e);
-            return encryptedContent; // 실패 시 원본 반환
-        }
-    }
 } 

@@ -46,6 +46,11 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     Page<Message> findByChatRoomIdOrderByCreatedAtDesc(String chatRoomId, Pageable pageable);
     
     /**
+     * 채팅방별 메시지 조회 (페이징) - LogStorageService용
+     */
+    Page<Message> findByChatRoomId(String chatRoomId, Pageable pageable);
+    
+    /**
      * 감지 상태별 메시지 조회
      */
     List<Message> findByDetectionStatus(String detectionStatus);
@@ -56,10 +61,33 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     Page<Message> findByDetectedTypeOrderByCreatedAtDesc(String detectedType, Pageable pageable);
     
     /**
-     * 특정 기간 내 메시지 조회
+     * 감지 타입별 메시지 조회 (페이징) - LogStorageService용
+     */
+    Page<Message> findByDetectedType(String detectedType, Pageable pageable);
+    
+    /**
+     * 특정 기간 내 메시지 조회 (리스트)
      */
     @Query("SELECT m FROM Message m WHERE m.createdAt BETWEEN :startTime AND :endTime ORDER BY m.createdAt DESC")
     List<Message> findByCreatedAtBetween(@Param("startTime") Instant startTime, @Param("endTime") Instant endTime);
+    
+    /**
+     * 특정 기간 내 메시지 조회 (페이징) - LogStorageService용
+     */
+    @Query("SELECT m FROM Message m WHERE m.createdAt BETWEEN :startTime AND :endTime ORDER BY m.createdAt DESC")
+    Page<Message> findByCreatedAtBetween(@Param("startTime") Instant startTime, @Param("endTime") Instant endTime, Pageable pageable);
+    
+    /**
+     * 특정 기간 내 메시지 개수 조회 - LogStorageService용
+     */
+    @Query("SELECT COUNT(m) FROM Message m WHERE m.createdAt BETWEEN :startTime AND :endTime")
+    long countByCreatedAtBetween(@Param("startTime") Instant startTime, @Param("endTime") Instant endTime);
+    
+    /**
+     * 특정 감지 유형 제외한 메시지 개수 조회 - LogStorageService용
+     */
+    @Query("SELECT COUNT(m) FROM Message m WHERE m.detectedType IS NOT NULL AND m.detectedType NOT IN :excludedTypes")
+    long countByDetectedTypeNotIn(@Param("excludedTypes") List<String> excludedTypes);
     
     /**
      * 이상 메시지 조회 (정상/unknown 제외)

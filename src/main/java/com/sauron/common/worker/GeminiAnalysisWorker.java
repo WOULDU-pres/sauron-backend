@@ -1,7 +1,10 @@
 package com.sauron.common.worker;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sauron.alert.entity.Alert;
 import com.sauron.common.external.GeminiWorkerClient;
+import com.sauron.common.external.telegram.TelegramNotificationService;
+import com.sauron.common.service.LogStorageService;
 import com.sauron.listener.dto.MessageRequest;
 import com.sauron.listener.entity.Message;
 import com.sauron.listener.repository.MessageRepository;
@@ -20,6 +23,7 @@ import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -41,6 +45,8 @@ public class GeminiAnalysisWorker {
     private final ObjectMapper objectMapper;
     private final GeminiWorkerClient geminiClient;
     private final MessageRepository messageRepository;
+    private final TelegramNotificationService telegramNotificationService;
+    private final LogStorageService logStorageService;
     
     @Value("${gemini.worker.enabled:true}")
     private boolean workerEnabled;
@@ -133,7 +139,7 @@ public class GeminiAnalysisWorker {
     private void createConsumerGroupIfNotExists() {
         try {
             redisTemplate.opsForStream()
-                    .createGroup(MESSAGE_STREAM, ReadOffset.earliest(), CONSUMER_GROUP);
+                    .createGroup(MESSAGE_STREAM, ReadOffset.from("0"), CONSUMER_GROUP);
             log.info("Created consumer group: {}", CONSUMER_GROUP);
             
         } catch (Exception e) {
@@ -263,11 +269,12 @@ public class GeminiAnalysisWorker {
             log.debug("Worker {} processing message: {}", workerName, messageId);
             
             // 데이터베이스에서 메시지 조회
-            Message message = messageRepository.findByMessageId(messageId);
-            if (message == null) {
+            Optional<Message> messageOpt = messageRepository.findByMessageId(messageId);
+            if (messageOpt.isEmpty()) {
                 log.warn("Message not found in database: {}", messageId);
                 return;
             }
+            Message message = messageOpt.get();
             
             // 이미 처리된 메시지인지 확인
             if (message.isAnalysisCompleted()) {
@@ -281,7 +288,7 @@ public class GeminiAnalysisWorker {
             
             // Gemini 분석 수행
             GeminiWorkerClient.AnalysisResult analysisResult = geminiClient
-                    .analyzeMessage(messageRequest.getContent(), messageRequest.getChatRoomTitle())
+                    .analyzeMessage(messageRequest.getMessageContent(), messageRequest.getChatRoomTitle())
                     .get(); // 동기적으로 대기
             
             // 분석 결과를 데이터베이스에 저장
@@ -307,6 +314,69 @@ public class GeminiAnalysisWorker {
         message.setMetadata(result.getMetadata());
         
         messageRepository.save(message);
+        
+        // 이상 메시지 감지 시 텔레그램 알림 전송 및 로그 저장
+        if (message.isAbnormal() && result.getConfidenceScore() != null) {
+            try {
+                // 알림 로그 생성 (전송 전)
+                Alert alertLog = Alert.builder()
+                        .messageId(message.getId())
+                        .channel("telegram")
+                        .alertType(result.getDetectedType())
+                        .status("PENDING")
+                        .createdAt(Instant.now())
+                        .build();
+                
+                // 알림 로그 저장
+                Alert savedAlert = logStorageService.saveAlertLog(alertLog);
+                
+                // 텔레그램 알림 전송
+                telegramNotificationService.sendAbnormalMessageAlert(
+                        message, 
+                        result.getDetectedType(), 
+                        result.getConfidenceScore()
+                ).thenAccept(success -> {
+                    // 전송 결과에 따라 알림 상태 업데이트
+                    try {
+                        savedAlert.setStatus(success ? "SENT" : "FAILED");
+                        savedAlert.setDeliveredAt(success ? Instant.now() : null);
+                        if (!success) {
+                            savedAlert.setErrorMessage("Alert delivery failed");
+                        }
+                        logStorageService.saveAlertLog(savedAlert);
+                        
+                        log.info("Telegram alert {} for message: {} - Alert ID: {}", 
+                                success ? "sent successfully" : "failed", 
+                                message.getMessageId(), savedAlert.getId());
+                        
+                    } catch (Exception e) {
+                        log.error("Failed to update alert status for message {}: {}", 
+                                 message.getMessageId(), e.getMessage());
+                    }
+                }).exceptionally(throwable -> {
+                    // 전송 실패 시 알림 상태 업데이트
+                    try {
+                        savedAlert.setStatus("FAILED");
+                        savedAlert.setErrorMessage("Exception: " + throwable.getMessage());
+                        logStorageService.saveAlertLog(savedAlert);
+                        
+                        log.error("Failed to send Telegram alert for message {}: {}", 
+                                 message.getMessageId(), throwable.getMessage());
+                        
+                    } catch (Exception e) {
+                        log.error("Failed to update failed alert status for message {}: {}", 
+                                 message.getMessageId(), e.getMessage());
+                    }
+                    return null;
+                });
+                
+                log.debug("Telegram alert initiated for abnormal message: {} - Alert ID: {}", 
+                         message.getMessageId(), savedAlert.getId());
+                
+            } catch (Exception e) {
+                log.error("Error initiating Telegram alert for message {}", message.getMessageId(), e);
+            }
+        }
     }
     
     /**
@@ -324,8 +394,9 @@ public class GeminiAnalysisWorker {
                 // TODO: DLQ로 이동하는 로직 구현
                 
                 // 데이터베이스 상태 업데이트
-                Message message = messageRepository.findByMessageId(messageId);
-                if (message != null) {
+                Optional<Message> messageOpt = messageRepository.findByMessageId(messageId);
+                if (messageOpt.isPresent()) {
+                    Message message = messageOpt.get();
                     message.setDetectionStatus("FAILED");
                     message.setMetadata("Failed after " + retryCount + " retries: " + error.getMessage());
                     messageRepository.save(message);
