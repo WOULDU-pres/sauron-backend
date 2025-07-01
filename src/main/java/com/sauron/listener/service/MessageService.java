@@ -21,6 +21,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
 
@@ -293,10 +294,83 @@ public class MessageService {
     }
     
     /**
-     * 분석 결과 업데이트
+     * 분석 결과 업데이트 (필터 적용 포함)
      */
     @Transactional
     private void updateAnalysisResult(String messageId, GeminiWorkerClient.AnalysisResult result) {
+        try {
+            // 메시지 정보 조회
+            Message message = messageRepository.findByMessageId(messageId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.MESSAGE_NOT_FOUND, "Message not found: " + messageId));
+            
+            log.debug("Applying filters to analysis result for message: {}", messageId);
+            
+            // 메시지 복호화 (필터 적용을 위해)
+            String decryptedContent = encryptionUtils.decrypt(message.getContentEncrypted());
+            
+            // 필터 적용 (Double을 BigDecimal로 변환)
+            BigDecimal originalConfidence = BigDecimal.valueOf(result.getConfidenceScore());
+            MessageFilterService.FilterResult filterResult = messageFilterService.applyFilters(
+                message.getId(), 
+                decryptedContent, 
+                message.getSenderHash(), 
+                result.getDetectedType(), 
+                originalConfidence
+            );
+            
+            // 최종 감지 타입과 신뢰도 결정
+            String finalDetectionType = filterResult.getFinalDetectionType();
+            Double finalConfidence = result.getConfidenceScore();
+            
+            // 신뢰도 조정이 있는 경우 적용
+            if (filterResult.hasConfidenceAdjusted()) {
+                BigDecimal adjustedConfidence = originalConfidence.add(filterResult.getConfidenceAdjustment());
+                // 신뢰도 범위 제한 (0.0 ~ 1.0)
+                if (adjustedConfidence.compareTo(BigDecimal.ZERO) < 0) {
+                    adjustedConfidence = BigDecimal.ZERO;
+                } else if (adjustedConfidence.compareTo(BigDecimal.ONE) > 0) {
+                    adjustedConfidence = BigDecimal.ONE;
+                }
+                finalConfidence = adjustedConfidence.doubleValue();
+            }
+            
+            Instant now = Instant.now();
+            int updated = messageRepository.updateAnalysisResult(
+                messageId,
+                finalDetectionType,
+                finalConfidence,
+                "COMPLETED",
+                now,
+                now
+            );
+            
+            if (updated == 0) {
+                log.warn("No message found to update analysis result for ID: {}", messageId);
+            } else {
+                if (filterResult.isFilterApplied()) {
+                    log.info("Analysis result updated with filters for message: {} - Original: {}, Final: {}, Filters: {}", 
+                            messageId, result.getDetectedType(), finalDetectionType, 
+                            filterResult.getAppliedFilters().size());
+                } else {
+                    log.debug("Analysis result updated without filters for message: {}", messageId);
+                }
+            }
+            
+        } catch (EncryptionUtils.EncryptionException e) {
+            log.error("Failed to decrypt message content for filtering: {}", messageId, e);
+            // 복호화 실패 시 필터 없이 원본 결과로 저장
+            saveAnalysisResultWithoutFilter(messageId, result);
+        } catch (Exception e) {
+            log.error("Failed to update analysis result for message: {}", messageId, e);
+            // 기타 오류 시에도 필터 없이 원본 결과로 저장 시도
+            saveAnalysisResultWithoutFilter(messageId, result);
+        }
+    }
+    
+    /**
+     * 필터 없이 분석 결과 저장 (폴백)
+     */
+    private void saveAnalysisResultWithoutFilter(String messageId, GeminiWorkerClient.AnalysisResult result) {
         try {
             Instant now = Instant.now();
             int updated = messageRepository.updateAnalysisResult(
@@ -308,14 +382,12 @@ public class MessageService {
                 now
             );
             
-            if (updated == 0) {
-                log.warn("No message found to update analysis result for ID: {}", messageId);
-            } else {
-                log.debug("Analysis result updated for message: {}", messageId);
+            if (updated > 0) {
+                log.warn("Analysis result saved without filters for message: {}", messageId);
             }
             
         } catch (Exception e) {
-            log.error("Failed to update analysis result for message: {}", messageId, e);
+            log.error("Failed to save fallback analysis result for message: {}", messageId, e);
         }
     }
     
