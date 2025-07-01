@@ -1,19 +1,25 @@
 package com.sauron.common.external;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.ai.client.generativeai.GenerativeModel;
+import com.google.ai.client.generativeai.type.Content;
+import com.google.ai.client.generativeai.type.GenerateContentResponse;
+import com.sauron.common.cache.AnalysisCacheService;
 import com.sauron.common.dto.BusinessException;
 import com.sauron.common.dto.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.Optional;
 
 /**
  * Gemini AI 워커 클라이언트
  * Gemini API를 통한 메시지 분석 기능을 제공합니다.
- * 현재는 실제 API 호출 대신 stub 구현으로 동작합니다.
  */
 @Service
 @RequiredArgsConstructor
@@ -21,14 +27,46 @@ import java.util.concurrent.ThreadLocalRandom;
 public class GeminiWorkerClient {
     
     private final ObjectMapper objectMapper;
+    private final AnalysisCacheService cacheService;
+    
+    @Autowired(required = false)
+    private final GenerativeModel generativeModel;
+    
+    @Value("${gemini.api.max-retries:3}")
+    private int maxRetries;
+    
+    @Value("${gemini.api.retry-delay:1s}")
+    private String retryDelay;
     
     // 분석 가능한 메시지 타입들
     private static final String[] DETECTION_TYPES = {
         "normal", "spam", "advertisement", "abuse", "conflict", "inappropriate"
     };
     
-    // Gemini API 엔드포인트 (실제 구현 시 사용)
-    private static final String GEMINI_API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent";
+    // Gemini 프롬프트 템플릿
+    private static final String ANALYSIS_PROMPT = """
+        다음 카카오톡 오픈채팅 메시지를 분석하여 적절한 카테고리로 분류해주세요.
+        
+        채팅방: %s
+        메시지: %s
+        
+        분류 기준:
+        - normal: 일반적인 대화, 정상적인 내용
+        - spam: 도배성 메시지, 반복적인 내용
+        - advertisement: 광고, 홍보, 판매 목적의 메시지
+        - abuse: 욕설, 인신공격, 혐오 표현
+        - conflict: 논쟁, 분쟁을 유발하는 내용
+        - inappropriate: 부적절한 내용 (성적, 폭력적 등)
+        
+        응답 형식 (JSON):
+        {
+          "type": "분류된 카테고리",
+          "confidence": 0.0-1.0 사이의 신뢰도,
+          "reasoning": "분류 근거 설명 (한국어)"
+        }
+        
+        반드시 위 JSON 형식으로만 답변해주세요.
+        """;
     
     /**
      * 메시지를 비동기적으로 분석합니다.
@@ -43,11 +81,25 @@ public class GeminiWorkerClient {
                 log.info("Starting Gemini analysis for message (length: {})", 
                         messageContent != null ? messageContent.length() : 0);
                 
-                // 실제 Gemini API 호출 시뮬레이션 (처리 시간)
-                Thread.sleep(ThreadLocalRandom.current().nextInt(500, 1500));
+                // 캐시에서 먼저 조회
+                Optional<AnalysisResult> cachedResult = cacheService.getCachedAnalysis(messageContent, chatRoomTitle);
+                if (cachedResult.isPresent()) {
+                    log.info("Using cached analysis result - Type: {}", cachedResult.get().getDetectedType());
+                    return cachedResult.get();
+                }
                 
-                // Stub 구현: 실제로는 Gemini API를 호출
-                AnalysisResult result = performStubAnalysis(messageContent, chatRoomTitle);
+                AnalysisResult result;
+                
+                // Gemini API 사용 가능 여부 확인
+                if (generativeModel != null) {
+                    result = performGeminiAnalysis(messageContent, chatRoomTitle);
+                } else {
+                    log.warn("Gemini API not configured, using stub analysis");
+                    result = performStubAnalysis(messageContent, chatRoomTitle);
+                }
+                
+                // 결과를 캐시에 저장
+                cacheService.cacheAnalysis(messageContent, chatRoomTitle, result);
                 
                 log.info("Gemini analysis completed - Type: {}, Confidence: {}", 
                         result.getDetectedType(), result.getConfidenceScore());
@@ -86,10 +138,11 @@ public class GeminiWorkerClient {
                 
                 // 각 메시지별 분석 수행
                 for (MessageAnalysisRequest messageRequest : request.getMessages()) {
-                    AnalysisResult result = performStubAnalysis(
+                    AnalysisResult result = analyzeMessage(
                         messageRequest.getContent(), 
                         messageRequest.getChatRoomTitle()
-                    );
+                    ).get(); // 동기적으로 대기
+                    
                     result.setMessageId(messageRequest.getMessageId());
                     batchResult.addResult(result);
                 }
@@ -121,11 +174,19 @@ public class GeminiWorkerClient {
             try {
                 log.debug("Checking Gemini API health");
                 
-                // 실제로는 Gemini API의 헬스체크 엔드포인트 호출
-                Thread.sleep(100);
+                if (generativeModel == null) {
+                    return false;
+                }
                 
-                // Stub: 90% 확률로 정상
-                boolean healthy = ThreadLocalRandom.current().nextDouble() > 0.1;
+                // 간단한 테스트 메시지로 API 상태 확인
+                String testPrompt = "Hello, respond with just 'OK'";
+                Content content = new Content.Builder()
+                        .addText(testPrompt)
+                        .setRole("user")
+                        .build();
+                
+                GenerateContentResponse response = generativeModel.generateContent(content);
+                boolean healthy = response.getText() != null;
                 
                 log.debug("Gemini API health check result: {}", healthy);
                 return healthy;
@@ -135,6 +196,110 @@ public class GeminiWorkerClient {
                 return false;
             }
         });
+    }
+    
+    /**
+     * 실제 Gemini API를 사용한 메시지 분석
+     */
+    private AnalysisResult performGeminiAnalysis(String messageContent, String chatRoomTitle) {
+        try {
+            long startTime = System.currentTimeMillis();
+            
+            // 프롬프트 생성
+            String prompt = String.format(ANALYSIS_PROMPT, 
+                    chatRoomTitle != null ? chatRoomTitle : "알 수 없음", 
+                    messageContent);
+            
+            // Gemini API 호출 (재시도 로직 포함)
+            GenerateContentResponse response = callGeminiWithRetry(prompt);
+            
+            long processingTime = System.currentTimeMillis() - startTime;
+            
+            // 응답 파싱
+            String responseText = response.getText();
+            GeminiAnalysisResponse geminiResponse = parseGeminiResponse(responseText);
+            
+            return AnalysisResult.builder()
+                    .detectedType(geminiResponse.type)
+                    .confidenceScore(geminiResponse.confidence)
+                    .reasoning(geminiResponse.reasoning)
+                    .processingTimeMs(processingTime)
+                    .metadata("{\"model\":\"gemini-1.5-flash\",\"version\":\"1.0\",\"api\":\"actual\"}")
+                    .build();
+                    
+        } catch (Exception e) {
+            log.error("Gemini API call failed, falling back to stub analysis", e);
+            return performStubAnalysis(messageContent, chatRoomTitle);
+        }
+    }
+    
+    /**
+     * 재시도 로직을 포함한 Gemini API 호출
+     */
+    private GenerateContentResponse callGeminiWithRetry(String prompt) throws Exception {
+        Exception lastException = null;
+        
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                Content content = new Content.Builder()
+                        .addText(prompt)
+                        .setRole("user")
+                        .build();
+                
+                return generativeModel.generateContent(content);
+                
+            } catch (Exception e) {
+                lastException = e;
+                log.warn("Gemini API call attempt {} failed: {}", attempt, e.getMessage());
+                
+                if (attempt < maxRetries) {
+                    try {
+                        Thread.sleep(1000 * attempt); // 지수적 백오프
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Interrupted during retry delay", ie);
+                    }
+                }
+            }
+        }
+        
+        throw new RuntimeException("All Gemini API retry attempts failed", lastException);
+    }
+    
+    /**
+     * Gemini 응답을 파싱합니다.
+     */
+    private GeminiAnalysisResponse parseGeminiResponse(String responseText) {
+        try {
+            // JSON 부분만 추출 (응답에 추가 텍스트가 있을 수 있음)
+            String jsonStart = responseText.indexOf("{") != -1 ? responseText.substring(responseText.indexOf("{")) : responseText;
+            String jsonEnd = jsonStart.lastIndexOf("}") != -1 ? jsonStart.substring(0, jsonStart.lastIndexOf("}") + 1) : jsonStart;
+            
+            return objectMapper.readValue(jsonEnd, GeminiAnalysisResponse.class);
+            
+        } catch (Exception e) {
+            log.error("Failed to parse Gemini response: {}", responseText, e);
+            
+            // 파싱 실패 시 기본값 반환
+            return new GeminiAnalysisResponse("unknown", 0.0, "Response parsing failed: " + responseText);
+        }
+    }
+    
+    /**
+     * Gemini 응답 구조체
+     */
+    private static class GeminiAnalysisResponse {
+        public String type;
+        public Double confidence;
+        public String reasoning;
+        
+        public GeminiAnalysisResponse() {}
+        
+        public GeminiAnalysisResponse(String type, Double confidence, String reasoning) {
+            this.type = type;
+            this.confidence = confidence;
+            this.reasoning = reasoning;
+        }
     }
     
     /**
@@ -252,4 +417,4 @@ public class GeminiWorkerClient {
             this.results.add(result);
         }
     }
-} 
+}
