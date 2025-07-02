@@ -1,0 +1,250 @@
+# Supabase Configuration for Sauron Backend
+# This profile configures the application to use Supabase instead of local PostgreSQL
+
+spring:
+  application:
+    name: sauron-backend
+
+  profiles:
+    active: supabase
+
+  # Supabase Database Configuration
+  datasource:
+    # Supabase connection string format: postgresql://postgres:[DB-PASSWORD]@db.[REF].supabase.co:5432/postgres
+    url: jdbc:postgresql://${SUPABASE_DB_HOST:db.your-project-ref.supabase.co}:${SUPABASE_DB_PORT:5432}/${SUPABASE_DB_NAME:postgres}?sslmode=require&stringtype=unspecified
+    username: postgres
+    password: ${SUPABASE_DB_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+    
+    # Supabase connection pool settings (optimized for cloud database)
+    hikari:
+      maximum-pool-size: ${SUPABASE_POOL_MAX_SIZE:10}
+      minimum-idle: ${SUPABASE_POOL_MIN_IDLE:2}
+      connection-timeout: 20000
+      idle-timeout: 300000
+      max-lifetime: 1200000
+      leak-detection-threshold: 60000
+
+  jpa:
+    hibernate:
+      # Use validate in production, create-drop only for development
+      ddl-auto: ${SUPABASE_DDL_AUTO:validate}
+    show-sql: ${SHOW_SQL:false}
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        # Supabase specific optimizations
+        jdbc:
+          time_zone: UTC
+          batch_size: 20
+        order_inserts: true
+        order_updates: true
+        batch_versioned_data: true
+
+  # Disable Flyway for Supabase (use Supabase migrations instead)
+  flyway:
+    enabled: false
+    # Note: Supabase uses its own migration system via CLI
+    # Use 'supabase db push' to apply schema changes
+
+  # Redis Configuration (can be external or Supabase-compatible)
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 5000ms
+      ssl: ${REDIS_SSL:false}
+      lettuce:
+        pool:
+          max-active: 8
+          max-wait: -1ms
+          max-idle: 8
+          min-idle: 0
+
+  security:
+    jwt:
+      secret: ${JWT_SECRET:sauron-jwt-secret-key-for-production-must-be-changed}
+      expiration: ${JWT_EXPIRATION:86400000}
+
+# Sauron specific configuration
+sauron:
+  # Encryption settings for Supabase deployment
+  encryption:
+    key: ${SAURON_ENCRYPTION_KEY:}
+    salt: ${SAURON_ENCRYPTION_SALT:sauron-supabase-salt-2024}
+    
+  # Supabase specific settings
+  supabase:
+    project-url: ${SUPABASE_PROJECT_URL:}
+    anon-key: ${SUPABASE_ANON_KEY:}
+    service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
+    
+    # Database roles configuration
+    roles:
+      service: sauron_service
+      admin: sauron_admin
+      readonly: sauron_readonly
+    
+    # Performance settings
+    performance:
+      enable-connection-pooling: true
+      connection-pool-size: 10
+      query-timeout: 30000
+      batch-size: 50
+
+# Logging configuration for production
+logging:
+  level:
+    com.sauron: ${LOG_LEVEL:INFO}
+    org.springframework.web: ${WEB_LOG_LEVEL:WARN}
+    org.hibernate.SQL: ${SQL_LOG_LEVEL:WARN}
+    org.springframework.security: ${SECURITY_LOG_LEVEL:WARN}
+    # Supabase client logging
+    io.supabase: ${SUPABASE_LOG_LEVEL:INFO}
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: ${LOG_FILE_PATH:/var/log/sauron/application.log}
+
+# Server configuration
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    context-path: /api
+
+# API Documentation
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+
+# Actuator endpoints for monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Gemini AI Configuration
+gemini:
+  api:
+    key: ${GEMINI_API_KEY:}
+    endpoint: ${GEMINI_API_ENDPOINT:https://generativelanguage.googleapis.com/v1beta}
+    model: ${GEMINI_MODEL:gemini-1.5-flash}
+    temperature: ${GEMINI_TEMPERATURE:0.1}
+    max-tokens: ${GEMINI_MAX_TOKENS:1000}
+  cache:
+    enabled: true
+    ttl: 300s
+  worker:
+    enabled: true
+    threads: ${GEMINI_WORKER_THREADS:4}
+    batch-size: ${GEMINI_BATCH_SIZE:10}
+    poll-timeout: 5s
+
+# Telegram Bot Configuration
+telegram:
+  bot:
+    token: ${TELEGRAM_BOT_TOKEN:}
+    username: ${TELEGRAM_BOT_USERNAME:}
+    enabled: ${TELEGRAM_ENABLED:true}
+    timeout: 10s
+    max-retries: 3
+    retry-delay: 1s
+  alerts:
+    enabled: true
+    min-confidence: ${TELEGRAM_MIN_CONFIDENCE:0.7}
+    alert-types: spam,advertisement,abuse,inappropriate,conflict
+    throttle-minutes: 5
+    max-alerts-per-hour: 100
+  channels:
+    default-chat-id: ${TELEGRAM_DEFAULT_CHAT_ID:}
+    admin-chat-ids: ${TELEGRAM_ADMIN_CHAT_IDS:}
+
+# Admin Configuration
+admin:
+  telegram:
+    chat-id: ${ADMIN_TELEGRAM_CHAT_ID:}
+
+# Application-specific features for Supabase
+features:
+  # Real-time features using Supabase Realtime
+  realtime:
+    enabled: ${REALTIME_ENABLED:true}
+    channels:
+      - messages
+      - alerts
+      - rooms
+  
+  # Analytics and monitoring
+  analytics:
+    enabled: ${ANALYTICS_ENABLED:true}
+    batch-size: 100
+    flush-interval: 30s
+  
+  # Background jobs and scheduling
+  jobs:
+    enabled: ${BACKGROUND_JOBS_ENABLED:true}
+    # Use external cron service or Supabase Edge Functions for scheduling
+    use-external-scheduler: true
+
+# Environment-specific overrides
+---
+# Development profile with Supabase
+spring:
+  profiles: supabase-dev
+  
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: create-drop
+  
+  flyway:
+    enabled: false
+
+logging:
+  level:
+    com.sauron: DEBUG
+    org.hibernate.SQL: DEBUG
+
+---
+# Production profile with Supabase
+spring:
+  profiles: supabase-prod
+
+  jpa:
+    show-sql: false
+    hibernate:
+      ddl-auto: validate
+
+  flyway:
+    enabled: false
+
+# Production-specific security and performance settings
+sauron:
+  supabase:
+    performance:
+      connection-pool-size: 20
+      query-timeout: 15000
+      batch-size: 100
+
+logging:
+  level:
+    root: WARN
+    com.sauron: INFO
+  file:
+    name: /var/log/sauron/application.log
+    max-size: 100MB
+    max-history: 30
