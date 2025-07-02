@@ -119,8 +119,8 @@ public class AlertDispatcherService {
         String alertId = alert.getId() != null ? alert.getId().toString() : "unknown";
         Instant startTime = Instant.now();
         
-        log.info("Starting alert dispatch - ID: {}, Type: {}, Severity: {}", 
-                alertId, alert.getAlertType(), alert.getSeverity());
+        log.info("Starting alert dispatch - ID: {}, Type: {}", 
+                alertId, alert.getAlertType());
         
         return asyncExecutor.executeWithTimeout(
             () -> performDispatch(alert, startTime),

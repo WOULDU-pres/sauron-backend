@@ -30,6 +30,53 @@ public class TelegramNotificationService {
     private static final String HOURLY_ALERT_COUNT_KEY = "telegram:alert:hourly:";
     
     /**
+     * 단순 텍스트 알림 전송
+     */
+    public CompletableFuture<Boolean> sendAlert(String message) {
+        List<String> targetChatIds = getTargetChatIds();
+        return sendAlertToChats(targetChatIds, "알림", message, "info");
+    }
+    
+    /**
+     * 고우선순위 알림 전송
+     */
+    public CompletableFuture<Boolean> sendHighPriorityAlert(String message, String chatId) {
+        return telegramBotClient.sendAlert(chatId, "긴급 알림", message, "high");
+    }
+    
+    /**
+     * 폴백 알림 전송
+     */
+    public CompletableFuture<Boolean> sendFallbackAlert(String message, String chatId) {
+        return telegramBotClient.sendAlert(chatId, "폴백 알림", message, "fallback");
+    }
+    
+    /**
+     * 여러 채팅방에 알림 전송
+     */
+    private CompletableFuture<Boolean> sendAlertToChats(List<String> chatIds, String title, String content, String severity) {
+        return CompletableFuture.supplyAsync(() -> {
+            if (chatIds.isEmpty()) {
+                return false;
+            }
+            
+            boolean allSuccess = true;
+            for (String chatId : chatIds) {
+                try {
+                    boolean sent = telegramBotClient.sendAlert(chatId, title, content, severity).get();
+                    if (!sent) {
+                        allSuccess = false;
+                    }
+                } catch (Exception e) {
+                    log.error("Failed to send alert to chat: {}", chatId, e);
+                    allSuccess = false;
+                }
+            }
+            return allSuccess;
+        });
+    }
+    
+    /**
      * 이상 메시지 감지 시 텔레그램 알림 전송
      */
     public CompletableFuture<Boolean> sendAbnormalMessageAlert(Message message, String detectedType, Double confidence) {

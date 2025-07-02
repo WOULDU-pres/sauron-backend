@@ -1,5 +1,5 @@
-# Supabase Configuration for Sauron Backend
-# This profile configures the application to use Supabase instead of local PostgreSQL
+# Supabase Configuration for Sauron Backend (개인 데모용 단순화)
+# 바로 테스트 가능하도록 핵심 설정만 활성화, 복잡한 기능들은 주석 처리
 
 spring:
   application:
@@ -15,11 +15,11 @@ spring:
     username: postgres
     password: ${SUPABASE_DB_PASSWORD:}
     driver-class-name: org.postgresql.Driver
-    
-    # Supabase connection pool settings (optimized for cloud database)
+
+    # Supabase connection pool settings (개인 데모용 최적화)
     hikari:
-      maximum-pool-size: ${SUPABASE_POOL_MAX_SIZE:10}
-      minimum-idle: ${SUPABASE_POOL_MIN_IDLE:2}
+      maximum-pool-size: ${SUPABASE_POOL_MAX_SIZE:5}
+      minimum-idle: ${SUPABASE_POOL_MIN_IDLE:1}
       connection-timeout: 20000
       idle-timeout: 300000
       max-lifetime: 1200000
@@ -48,14 +48,16 @@ spring:
     # Note: Supabase uses its own migration system via CLI
     # Use 'supabase db push' to apply schema changes
 
-  # Redis Configuration (can be external or Supabase-compatible)
+  # Redis Configuration (개인 데모에서는 선택사항 - 주석 처리 가능)
   data:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
       timeout: 5000ms
-      ssl: ${REDIS_SSL:false}
+      # Fixed deprecated SSL warning
+      ssl:
+        enabled: ${REDIS_SSL:false}
       lettuce:
         pool:
           max-active: 8
@@ -68,33 +70,33 @@ spring:
       secret: ${JWT_SECRET:sauron-jwt-secret-key-for-production-must-be-changed}
       expiration: ${JWT_EXPIRATION:86400000}
 
-# Sauron specific configuration
+# Sauron specific configuration (개인 데모용 단순화)
 sauron:
   # Encryption settings for Supabase deployment
   encryption:
     key: ${SAURON_ENCRYPTION_KEY:}
     salt: ${SAURON_ENCRYPTION_SALT:sauron-supabase-salt-2024}
-    
+
   # Supabase specific settings
   supabase:
     project-url: ${SUPABASE_PROJECT_URL:}
     anon-key: ${SUPABASE_ANON_KEY:}
     service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
-    
-    # Database roles configuration
+
+    # Database roles configuration (개인 데모에서는 단순화)
     roles:
       service: sauron_service
       admin: sauron_admin
       readonly: sauron_readonly
-    
-    # Performance settings
+
+    # Performance settings (개인 데모용 최적화)
     performance:
       enable-connection-pooling: true
       connection-pool-size: 10
       query-timeout: 30000
       batch-size: 50
 
-# Logging configuration for production
+# Logging configuration (개인 데모용)
 logging:
   level:
     com.sauron: ${LOG_LEVEL:INFO}
@@ -105,8 +107,9 @@ logging:
     io.supabase: ${SUPABASE_LOG_LEVEL:INFO}
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
-  file:
-    name: ${LOG_FILE_PATH:/var/log/sauron/application.log}
+  # 개인 데모에서는 파일 로깅 선택사항
+  # file:
+  #   name: ${LOG_FILE_PATH:/var/log/sauron/application.log}
 
 # Server configuration
 server:
@@ -123,19 +126,22 @@ springdoc:
     tags-sorter: alpha
     operations-sorter: alpha
 
-# Actuator endpoints for monitoring
+# Actuator endpoints for monitoring (개인 데모용 최소 설정)
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: health,info
+        # 복잡한 모니터링은 주석 처리
+        # include: health,info,metrics,prometheus
   endpoint:
     health:
       show-details: when-authorized
-  metrics:
-    export:
-      prometheus:
-        enabled: true
+  # 개인 데모에서는 메트릭 비활성화
+  # metrics:
+  #   export:
+  #     prometheus:
+  #       enabled: false
 
 # Gemini AI Configuration
 gemini:
@@ -150,11 +156,12 @@ gemini:
     ttl: 300s
   worker:
     enabled: true
-    threads: ${GEMINI_WORKER_THREADS:4}
-    batch-size: ${GEMINI_BATCH_SIZE:10}
+    # 개인 데모용 최적화
+    threads: ${GEMINI_WORKER_THREADS:2}
+    batch-size: ${GEMINI_BATCH_SIZE:5}
     poll-timeout: 5s
 
-# Telegram Bot Configuration
+# Telegram Bot Configuration (개인 데모용 단순화)
 telegram:
   bot:
     token: ${TELEGRAM_BOT_TOKEN:}
@@ -171,46 +178,53 @@ telegram:
     max-alerts-per-hour: 100
   channels:
     default-chat-id: ${TELEGRAM_DEFAULT_CHAT_ID:}
+    # 개인 데모에서는 관리자 채팅 선택사항
     admin-chat-ids: ${TELEGRAM_ADMIN_CHAT_IDS:}
 
-# Admin Configuration
-admin:
-  telegram:
-    chat-id: ${ADMIN_TELEGRAM_CHAT_ID:}
+# Admin Configuration (개인 데모에서는 선택사항 - 주석 처리)
+# admin:
+#   telegram:
+#     chat-id: ${ADMIN_TELEGRAM_CHAT_ID:}
 
-# Application-specific features for Supabase
+# 개인 데모 모드 설정 (기본 활성화)
+demo:
+  enabled: ${DEMO_MODE:true}
+  skip-admin-validation: ${DEMO_SKIP_ADMIN:true}
+  simple-auth: ${DEMO_SIMPLE_AUTH:true}
+
+# Application-specific features for Supabase (개인 데모용 단순화)
 features:
-  # Real-time features using Supabase Realtime
+  # Real-time features using Supabase Realtime (선택사항)
   realtime:
-    enabled: ${REALTIME_ENABLED:true}
+    enabled: ${REALTIME_ENABLED:false}
     channels:
       - messages
       - alerts
       - rooms
-  
-  # Analytics and monitoring
+
+  # Analytics and monitoring (개인 데모에서는 비활성화)
   analytics:
-    enabled: ${ANALYTICS_ENABLED:true}
-    batch-size: 100
-    flush-interval: 30s
-  
-  # Background jobs and scheduling
+    enabled: ${ANALYTICS_ENABLED:false}
+    # batch-size: 100
+    # flush-interval: 30s
+
+  # Background jobs and scheduling (개인 데모용 단순화)
   jobs:
     enabled: ${BACKGROUND_JOBS_ENABLED:true}
     # Use external cron service or Supabase Edge Functions for scheduling
-    use-external-scheduler: true
+    use-external-scheduler: false
 
 # Environment-specific overrides
 ---
 # Development profile with Supabase
 spring:
   profiles: supabase-dev
-  
+
   jpa:
     show-sql: true
     hibernate:
       ddl-auto: create-drop
-  
+
   flyway:
     enabled: false
 
@@ -219,8 +233,14 @@ logging:
     com.sauron: DEBUG
     org.hibernate.SQL: DEBUG
 
+# 개발환경에서도 데모 모드 기본 활성화
+demo:
+  enabled: true
+  skip-admin-validation: true
+  simple-auth: true
+
 ---
-# Production profile with Supabase
+# Production profile with Supabase (운영 환경 시 사용)
 spring:
   profiles: supabase-prod
 
@@ -239,6 +259,12 @@ sauron:
       connection-pool-size: 20
       query-timeout: 15000
       batch-size: 100
+
+# 운영 환경에서는 데모 모드 비활성화 가능
+demo:
+  enabled: ${DEMO_MODE:false}
+  skip-admin-validation: ${DEMO_SKIP_ADMIN:false}
+  simple-auth: ${DEMO_SIMPLE_AUTH:false}
 
 logging:
   level:

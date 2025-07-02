@@ -2,7 +2,9 @@ package com.sauron.logging.service;
 
 import com.sauron.common.core.async.AsyncExecutor;
 import com.sauron.logging.dto.LogEntry;
+import com.sauron.logging.dto.LogIntegrityReport;
 import com.sauron.logging.dto.LogQuery;
+import com.sauron.logging.dto.LogStatistics;
 import com.sauron.logging.dto.LogValidationResult;
 import com.sauron.logging.entity.AuditLog;
 import com.sauron.logging.repository.AuditLogRepository;

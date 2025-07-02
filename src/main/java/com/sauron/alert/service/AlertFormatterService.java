@@ -162,12 +162,16 @@ public class AlertFormatterService {
      * 채팅방 제목 추출
      */
     private String extractChatRoomTitle(Alert alert) {
-        String message = alert.getMessage();
-        if (message != null && message.contains("채팅방:")) {
+        // 메타데이터에서 채팅방 정보 추출 시도
+        String metadata = alert.getMetadata();
+        if (metadata != null && metadata.contains("chatRoom")) {
             try {
-                return message.split("채팅방:")[1].split(",")[0].trim();
+                String[] parts = metadata.split("chatRoom");
+                if (parts.length > 1) {
+                    return parts[1].split(",")[0].replace(":", "").replace("\"", "").trim();
+                }
             } catch (Exception e) {
-                log.debug("Failed to extract chatroom title from message: {}", message);
+                log.debug("Failed to extract chatroom title from metadata: {}", metadata);
             }
         }
         return "알 수 없는 채팅방";
@@ -177,31 +181,30 @@ public class AlertFormatterService {
      * 메시지 내용 추출
      */
     private String extractMessageContent(Alert alert) {
-        String message = alert.getMessage();
-        if (message != null && message.contains("메시지:")) {
-            try {
-                return message.split("메시지:")[1].trim();
-            } catch (Exception e) {
-                log.debug("Failed to extract message content from: {}", message);
-            }
+        // 암호화된 내용은 복호화 없이 표시할 수 없으므로 기본 메시지 반환
+        String contentEncrypted = alert.getContentEncrypted();
+        if (contentEncrypted != null && !contentEncrypted.trim().isEmpty()) {
+            return "감지된 메시지 (암호화됨)";
         }
-        return message != null ? message : "메시지 내용 없음";
+        return "메시지 내용 없음";
     }
     
     /**
      * 신뢰도 추출
      */
     private Double extractConfidence(Alert alert) {
-        String message = alert.getMessage();
-        if (message != null && message.contains("신뢰도:")) {
+        // 메타데이터에서 신뢰도 정보 추출 시도
+        String metadata = alert.getMetadata();
+        if (metadata != null && metadata.contains("confidence")) {
             try {
-                String confidenceStr = message.split("신뢰도:")[1].split(",")[0].trim();
-                if (confidenceStr.endsWith("%")) {
-                    confidenceStr = confidenceStr.substring(0, confidenceStr.length() - 1);
+                // JSON 형태의 메타데이터에서 confidence 값 추출
+                String[] parts = metadata.split("confidence");
+                if (parts.length > 1) {
+                    String confidencePart = parts[1].split(",")[0].replace(":", "").replace("\"", "").trim();
+                    return Double.parseDouble(confidencePart);
                 }
-                return Double.parseDouble(confidenceStr) / 100.0;
             } catch (Exception e) {
-                log.debug("Failed to extract confidence from message: {}", message);
+                log.debug("Failed to extract confidence from metadata: {}", metadata);
             }
         }
         return 0.5; // 기본값
@@ -213,9 +216,10 @@ public class AlertFormatterService {
     private Map<String, Object> buildMetadata(Alert alert) {
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("alertId", alert.getId());
-        metadata.put("originalMessage", alert.getMessage());
+        metadata.put("originalContent", alert.getContentEncrypted());
         metadata.put("createdAt", alert.getCreatedAt());
-        metadata.put("resolved", alert.getResolved());
+        metadata.put("status", alert.getStatus());
+        metadata.put("channel", alert.getChannel());
         return metadata;
     }
     
@@ -224,18 +228,18 @@ public class AlertFormatterService {
      */
     private FormattedAlert createFallbackFormattedAlert(Alert alert) {
         String alertId = alert.getId() != null ? alert.getId().toString() : "unknown";
-        String message = alert.getMessage() != null ? alert.getMessage() : "알림 정보 없음";
+        String content = alert.getContentEncrypted() != null ? "암호화된 내용" : "알림 정보 없음";
         
         return new FormattedAlert(
             alertId,
             alert.getAlertType() != null ? alert.getAlertType() : "unknown",
             "MEDIUM",
             "알림 처리 중 오류 발생",
-            message,
+            content,
             "알림을 포맷팅하는 중 오류가 발생했습니다. 원본 정보를 확인해주세요.",
             Instant.now(),
             "알 수 없는 채팅방",
-            message,
+            content,
             0.5,
             Map.of("fallback", true, "originalAlert", alert)
         );

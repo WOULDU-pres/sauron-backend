@@ -115,10 +115,16 @@ telegram:
     throttle-minutes: 5
     max-alerts-per-hour: 100
   channels:
-    default-chat-id: ${TELEGRAM_DEFAULT_CHAT_ID}
-    admin-chat-ids: ${TELEGRAM_ADMIN_CHAT_IDS}
+    default-chat-id: ${TELEGRAM_DEFAULT_CHAT_ID:}
+    admin-chat-ids: ${TELEGRAM_ADMIN_CHAT_IDS:}
 
-# 관리자 설정
+# 관리자 설정 (개인 데모에서는 선택사항)
 admin:
   telegram:
     chat-id: ${ADMIN_TELEGRAM_CHAT_ID:}
+
+# 데모 모드 설정 (개인 사용자용)
+demo:
+  enabled: ${DEMO_MODE:false}
+  skip-admin-validation: ${DEMO_SKIP_ADMIN:true}
+  simple-auth: ${DEMO_SIMPLE_AUTH:true}

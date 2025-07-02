@@ -1,6 +1,7 @@
 package com.sauron.routing.service;
 
 import com.sauron.alert.service.FormattedAlert;
+import com.sauron.routing.dto.UserPermissionSummary;
 import com.sauron.routing.entity.AdminUser;
 import com.sauron.routing.entity.PermissionGroup;
 import com.sauron.routing.repository.PermissionGroupRepository;
