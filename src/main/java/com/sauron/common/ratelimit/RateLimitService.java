@@ -143,4 +143,82 @@ public class RateLimitService {
             log.error("Error resetting rate limit for key: " + key, e);
         }
     }
+    
+    /**
+     * Rate Limit 서비스 상태 확인
+     * 
+     * @return 서비스가 정상이면 true
+     */
+    public boolean isHealthy() {
+        try {
+            // Redis 연결 상태 확인
+            redisTemplate.opsForValue().get("health_check");
+            return true;
+        } catch (Exception e) {
+            log.error("Rate limit service health check failed", e);
+            return false;
+        }
+    }
+    
+    /**
+     * Rate Limit 통계 조회
+     * 
+     * @return 통계 정보
+     */
+    public RateLimitStatistics getStatistics() {
+        try {
+            // 간단한 통계 수집 (실제 구현에서는 더 정교한 메트릭 수집 필요)
+            return RateLimitStatistics.builder()
+                .totalViolations(0L) // TODO: 실제 메트릭 수집 구현
+                .activeKeys(0L)
+                .build();
+        } catch (Exception e) {
+            log.error("Failed to get rate limit statistics", e);
+            return RateLimitStatistics.empty();
+        }
+    }
+    
+    /**
+     * Rate Limit 통계 DTO
+     */
+    public static class RateLimitStatistics {
+        private final long totalViolations;
+        private final long activeKeys;
+        
+        private RateLimitStatistics(long totalViolations, long activeKeys) {
+            this.totalViolations = totalViolations;
+            this.activeKeys = activeKeys;
+        }
+        
+        public static RateLimitStatisticsBuilder builder() {
+            return new RateLimitStatisticsBuilder();
+        }
+        
+        public static RateLimitStatistics empty() {
+            return new RateLimitStatistics(0, 0);
+        }
+        
+        // Getters
+        public long getTotalViolations() { return totalViolations; }
+        public long getActiveKeys() { return activeKeys; }
+        
+        public static class RateLimitStatisticsBuilder {
+            private long totalViolations;
+            private long activeKeys;
+            
+            public RateLimitStatisticsBuilder totalViolations(long totalViolations) {
+                this.totalViolations = totalViolations;
+                return this;
+            }
+            
+            public RateLimitStatisticsBuilder activeKeys(long activeKeys) {
+                this.activeKeys = activeKeys;
+                return this;
+            }
+            
+            public RateLimitStatistics build() {
+                return new RateLimitStatistics(totalViolations, activeKeys);
+            }
+        }
+    }
 } 

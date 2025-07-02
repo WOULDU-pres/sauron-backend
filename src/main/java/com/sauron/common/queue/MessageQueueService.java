@@ -213,17 +213,47 @@ public class MessageQueueService {
     }
     
     /**
+     * 우선순위가 있는 메시지를 큐에 전송합니다.
+     * 
+     * @param messageRequest 큐에 전송할 메시지
+     * @param priority 우선순위 (HIGH, NORMAL, LOW)
+     * @return 큐 전송 성공 여부
+     */
+    public boolean enqueueWithPriority(MessageRequest messageRequest, String priority) {
+        try {
+            // 우선순위별 스트림 이름 생성
+            String priorityStream = MESSAGE_STREAM + ":" + priority.toLowerCase();
+            return enqueueMessage(priorityStream, messageRequest, 0);
+            
+        } catch (Exception e) {
+            log.error("Failed to enqueue message with priority {}: {}", 
+                     priority, messageRequest.getMessageId(), e);
+            return false;
+        }
+    }
+    
+    /**
      * 큐 상태 정보를 담는 클래스
      */
     public static class QueueStatus {
         private final long mainQueueSize;
         private final long dlqSize;
         private final boolean healthy;
+        private final String errorMessage;
         
         public QueueStatus(long mainQueueSize, long dlqSize, boolean healthy) {
+            this(mainQueueSize, dlqSize, healthy, null);
+        }
+        
+        public QueueStatus(long mainQueueSize, long dlqSize, boolean healthy, String errorMessage) {
             this.mainQueueSize = mainQueueSize;
             this.dlqSize = dlqSize;
             this.healthy = healthy;
+            this.errorMessage = errorMessage;
+        }
+        
+        public static QueueStatusBuilder builder() {
+            return new QueueStatusBuilder();
         }
         
         public long getMainQueueSize() {
@@ -238,10 +268,65 @@ public class MessageQueueService {
             return healthy;
         }
         
+        public String getErrorMessage() {
+            return errorMessage;
+        }
+        
+        // 편의를 위한 별칭 메서드들
+        public long getPendingMessages() {
+            return mainQueueSize;
+        }
+        
+        public long getProcessingMessages() {
+            return 0L; // TODO: 실제 처리 중인 메시지 수 추적 구현
+        }
+        
         @Override
         public String toString() {
-            return String.format("QueueStatus{mainQueue=%d, dlq=%d, healthy=%s}", 
-                               mainQueueSize, dlqSize, healthy);
+            return String.format("QueueStatus{mainQueue=%d, dlq=%d, healthy=%s, error=%s}", 
+                               mainQueueSize, dlqSize, healthy, errorMessage);
+        }
+        
+        public static class QueueStatusBuilder {
+            private long mainQueueSize = 0;
+            private long dlqSize = 0;
+            private boolean healthy = true;
+            private String errorMessage;
+            
+            public QueueStatusBuilder mainQueueSize(long mainQueueSize) {
+                this.mainQueueSize = mainQueueSize;
+                return this;
+            }
+            
+            public QueueStatusBuilder dlqSize(long dlqSize) {
+                this.dlqSize = dlqSize;
+                return this;
+            }
+            
+            public QueueStatusBuilder healthy(boolean healthy) {
+                this.healthy = healthy;
+                return this;
+            }
+            
+            public QueueStatusBuilder errorMessage(String errorMessage) {
+                this.errorMessage = errorMessage;
+                return this;
+            }
+            
+            // 별칭 메서드들
+            public QueueStatusBuilder pendingMessages(long pendingMessages) {
+                this.mainQueueSize = pendingMessages;
+                return this;
+            }
+            
+            public QueueStatusBuilder processingMessages(long processingMessages) {
+                // TODO: 처리 중인 메시지 수 필드 추가 시 구현
+                return this;
+            }
+            
+            public QueueStatus build() {
+                return new QueueStatus(mainQueueSize, dlqSize, healthy, errorMessage);
+            }
         }
     }
 } 
