@@ -3,6 +3,7 @@ package com.sauron.common.external;
 import com.google.genai.Client;
 import com.google.genai.types.GenerateContentResponse;
 import com.sauron.common.cache.AnalysisCacheService;
+import lombok.Builder;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -225,15 +226,41 @@ public class GeminiWorkerClient {
      * 분석 결과 클래스
      */
     @Data
+    @Builder
     public static class AnalysisResult {
         private final String detectedType;
         private final Double confidenceScore;
         private final String metadata;
+        private final String messageId;
+        private final long processingTimeMs;
         
         public AnalysisResult(String detectedType, Double confidenceScore, String metadata) {
             this.detectedType = detectedType;
             this.confidenceScore = confidenceScore;
             this.metadata = metadata;
+            this.messageId = null;
+            this.processingTimeMs = 0L;
+        }
+        
+        public AnalysisResult(String detectedType, Double confidenceScore, String metadata, String messageId, long processingTimeMs) {
+            this.detectedType = detectedType;
+            this.confidenceScore = confidenceScore;
+            this.metadata = metadata;
+            this.messageId = messageId;
+            this.processingTimeMs = processingTimeMs;
+        }
+        
+        // Additional getters for test compatibility
+        public String getReasoning() {
+            return metadata;
+        }
+        
+        public String getMessageId() {
+            return messageId;
+        }
+        
+        public long getProcessingTimeMs() {
+            return processingTimeMs;
         }
     }
 }

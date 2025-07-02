@@ -73,4 +73,9 @@ public class MessageRequest {
      */
     @NotBlank(message = "Priority cannot be blank")
     private String priority;
+    
+    // Additional setter for test compatibility
+    public void setContent(String content) {
+        this.messageContent = content;
+    }
 } 

@@ -49,6 +49,14 @@ CREATE INDEX IF NOT EXISTS idx_alerts_channel ON alerts(channel);
 CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status);
 CREATE INDEX IF NOT EXISTS idx_alerts_created_at ON alerts(created_at);
 
--- 외래 키 제약 조건 추가
-ALTER TABLE alerts ADD CONSTRAINT IF NOT EXISTS fk_alerts_message_id 
-    FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE; 
+-- 외래 키 제약 조건 추가 (PostgreSQL에서는 IF NOT EXISTS 미지원으로 DO 블록 사용)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'fk_alerts_message_id'
+    ) THEN
+        ALTER TABLE alerts ADD CONSTRAINT fk_alerts_message_id 
+            FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE;
+    END IF;
+END $$;

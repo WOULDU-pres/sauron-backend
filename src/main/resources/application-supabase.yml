@@ -2,18 +2,24 @@
 # 바로 테스트 가능하도록 핵심 설정만 활성화, 복잡한 기능들은 주석 처리
 
 spring:
+  config:
+    activate:
+      on-profile: supabase
   application:
     name: sauron-backend
+  
+  # H2 Auto Configuration 명시적 비활성화
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.h2.H2ConsoleAutoConfiguration
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
 
-  profiles:
-    active: supabase
-
-  # Supabase Database Configuration
+  # Supabase PostgreSQL Database Configuration (Session Pooler)
   datasource:
-    # Supabase connection string format: postgresql://postgres:[DB-PASSWORD]@db.[REF].supabase.co:5432/postgres
-    url: jdbc:postgresql://${SUPABASE_DB_HOST:db.your-project-ref.supabase.co}:${SUPABASE_DB_PORT:5432}/${SUPABASE_DB_NAME:postgres}?sslmode=require&stringtype=unspecified
-    username: postgres
-    password: ${SUPABASE_DB_PASSWORD:}
+    # Using Supabase Session Pooler for IPv4 compatibility
+    url: jdbc:postgresql://${SUPABASE_DB_HOST:aws-0-ap-northeast-2.pooler.supabase.com}:${SUPABASE_DB_PORT:5432}/${SUPABASE_DB_NAME:postgres}
+    username: ${SUPABASE_DB_USERNAME:postgres.goenzpyttcmlymdeatgr}
+    password: ${SUPABASE_DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
 
     # Supabase connection pool settings (개인 데모용 최적화)
@@ -27,8 +33,8 @@ spring:
 
   jpa:
     hibernate:
-      # Use validate in production, create-drop only for development
-      ddl-auto: ${SUPABASE_DDL_AUTO:validate}
+      # Use create-drop for initial setup, then change to validate
+      ddl-auto: ${SUPABASE_DDL_AUTO:create-drop}
     show-sql: ${SHOW_SQL:false}
     properties:
       hibernate:
@@ -42,11 +48,12 @@ spring:
         order_updates: true
         batch_versioned_data: true
 
-  # Disable Flyway for Supabase (use Supabase migrations instead)
+  # Enable Flyway for Supabase PostgreSQL schema management
   flyway:
-    enabled: false
-    # Note: Supabase uses its own migration system via CLI
-    # Use 'supabase db push' to apply schema changes
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    locations: classpath:db/migration
 
   # Redis Configuration (개인 데모에서는 선택사항 - 주석 처리 가능)
   data:
@@ -218,7 +225,9 @@ features:
 ---
 # Development profile with Supabase
 spring:
-  profiles: supabase-dev
+  config:
+    activate:
+      on-profile: supabase-dev
 
   jpa:
     show-sql: true
@@ -242,7 +251,9 @@ demo:
 ---
 # Production profile with Supabase (운영 환경 시 사용)
 spring:
-  profiles: supabase-prod
+  config:
+    activate:
+      on-profile: supabase-prod
 
   jpa:
     show-sql: false

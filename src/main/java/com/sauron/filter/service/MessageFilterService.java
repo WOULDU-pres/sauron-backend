@@ -283,4 +283,21 @@ public class MessageFilterService {
     public List<WhitelistWord> getAllActiveWhitelists() {
         return whitelistWordRepository.findAllActiveOrderByPriority();
     }
+    
+    /**
+     * 오늘의 필터 적용 통계 조회
+     */
+    @Transactional(readOnly = true)
+    public List<Object[]> getTodayFilterStatistics() {
+        // 오늘 00:00:00 UTC 기준으로 시작 시간 계산
+        Instant startOfDay = Instant.now().atZone(java.time.ZoneOffset.UTC)
+            .toLocalDate()
+            .atStartOfDay(java.time.ZoneOffset.UTC)
+            .toInstant();
+        
+        // 내일 00:00:00 UTC 기준으로 종료 시간 계산
+        Instant startOfNextDay = startOfDay.plus(java.time.Duration.ofDays(1));
+        
+        return filterApplicationRepository.getTodayFilterStatistics(startOfDay, startOfNextDay);
+    }
 } 

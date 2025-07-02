@@ -1,0 +1,42 @@
+spring:
+  datasource:
+    url: jdbc:tc:postgresql:15:///testdb
+    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
+    username: test
+    password: test
+  
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+
+  data:
+    redis:
+      host: localhost
+      port: 16379  # 다른 포트로 설정하여 실제 Redis 없이도 테스트 가능
+      timeout: 2000ms
+
+  flyway:
+    enabled: false  # 테스트에서는 Flyway 비활성화
+
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+
+# 테스트용 설정
+gemini:
+  api:
+    enabled: false  # 테스트에서는 Gemini API 비활성화
+    key: test-key
+  
+telegram:
+  bot:
+    enabled: false  # 테스트에서는 텔레그램 봇 비활성화
+    token: test-token
+
+logging:
+  level:
+    com.sauron: DEBUG
+    org.springframework: WARN
+    org.hibernate: WARN

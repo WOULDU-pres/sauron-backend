@@ -137,7 +137,8 @@ public interface FilterApplicationRepository extends JpaRepository<FilterApplica
      */
     @Query("SELECT f.filterType, COUNT(f) " +
            "FROM FilterApplication f " +
-           "WHERE DATE(f.appliedAt) = CURRENT_DATE " +
+           "WHERE f.appliedAt >= :startOfDay AND f.appliedAt < :startOfNextDay " +
            "GROUP BY f.filterType")
-    List<Object[]> getTodayFilterStatistics();
+    List<Object[]> getTodayFilterStatistics(@Param("startOfDay") Instant startOfDay, 
+                                           @Param("startOfNextDay") Instant startOfNextDay);
 } 
