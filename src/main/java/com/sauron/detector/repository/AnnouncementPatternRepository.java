@@ -1,149 +1,79 @@
 package com.sauron.detector.repository;
 
-import com.sauron.detector.dto.AnnouncementPattern;
+import com.sauron.detector.entity.AnnouncementPattern;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.stream.Collectors;
+import java.util.Optional;
 
 /**
- * 공고 패턴 저장소 (메모리 기반 구현)
- * 실제 환경에서는 JPA Repository로 교체 필요
+ * 공지 패턴 저장소 (JPA 기반)
+ * T-007: 공지/이벤트 메시지 자동 감지 기능 구현
  */
 @Repository
-public class AnnouncementPatternRepository {
-    
-    private final ConcurrentHashMap<Long, AnnouncementPattern> patterns = new ConcurrentHashMap<>();
-    private final AtomicLong idGenerator = new AtomicLong(1);
-    
-    public AnnouncementPatternRepository() {
-        initializeDefaultPatterns();
-    }
-    
+public interface AnnouncementPatternRepository extends JpaRepository<AnnouncementPattern, Long> {
+
     /**
-     * 활성 패턴 조회
+     * 활성화된 패턴만 조회
      */
-    public List<AnnouncementPattern> findActivePatterns() {
-        return patterns.values().stream()
-            .filter(AnnouncementPattern::isActive)
-            .collect(Collectors.toList());
-    }
-    
-    /**
-     * 모든 패턴 조회
-     */
-    public List<AnnouncementPattern> findAll() {
-        return new ArrayList<>(patterns.values());
-    }
-    
-    /**
-     * ID로 패턴 조회
-     */
-    public AnnouncementPattern findById(Long id) {
-        return patterns.get(id);
-    }
-    
-    /**
-     * 패턴 저장
-     */
-    public AnnouncementPattern save(AnnouncementPattern pattern) {
-        if (pattern.getId() == null) {
-            pattern = pattern.toBuilder()
-                .id(idGenerator.getAndIncrement())
-                .createdAt(Instant.now())
-                .build();
-        } else {
-            pattern = pattern.toBuilder()
-                .updatedAt(Instant.now())
-                .build();
-        }
-        patterns.put(pattern.getId(), pattern);
-        return pattern;
-    }
-    
-    /**
-     * 패턴 삭제
-     */
-    public void deleteById(Long id) {
-        patterns.remove(id);
-    }
-    
+    List<AnnouncementPattern> findByActiveTrue();
+
     /**
      * 카테고리별 활성 패턴 조회
      */
-    public List<AnnouncementPattern> findActiveByCategoryOrderByConfidenceDesc(String category) {
-        return patterns.values().stream()
-            .filter(p -> p.isActive() && category.equals(p.getCategory()))
-            .sorted((p1, p2) -> Double.compare(p2.getConfidenceWeight(), p1.getConfidenceWeight()))
-            .collect(Collectors.toList());
-    }
-    
+    List<AnnouncementPattern> findByCategoryAndActiveTrueOrderByPriorityDesc(String category);
+
     /**
-     * 신뢰도별 활성 패턴 조회
+     * 우선순위가 높은 활성 패턴 조회 (우선순위 7 이상)
      */
-    public List<AnnouncementPattern> findActiveByConfidenceGreaterThan(double minConfidence) {
-        return patterns.values().stream()
-            .filter(p -> p.isActive() && p.getConfidenceWeight() > minConfidence)
-            .collect(Collectors.toList());
-    }
-    
+    @Query("SELECT p FROM AnnouncementPattern p WHERE p.active = true AND p.priority >= 7 ORDER BY p.priority DESC")
+    List<AnnouncementPattern> findHighPriorityActivePatterns();
+
     /**
-     * 기본 패턴 초기화
+     * 제외 패턴 조회 (음수 가중치)
      */
-    private void initializeDefaultPatterns() {
-        // 기본 공고 패턴들
-        save(AnnouncementPattern.builder()
-            .name("공지사항")
-            .description("일반적인 공지사항 패턴")
-            .regexPattern("(공지|공고|알림|안내).*\\s*(사항|내용|말씀)")
-            .confidenceWeight(0.8)
-            .active(true)
-            .category("official")
-            .createdBy("system")
-            .build());
-        
-        save(AnnouncementPattern.builder()
-            .name("이벤트공지")
-            .description("이벤트 관련 공지 패턴")
-            .regexPattern("(이벤트|event).*\\s*(개최|진행|참여|시작)")
-            .confidenceWeight(0.7)
-            .active(true)
-            .category("event")
-            .createdBy("system")
-            .build());
-        
-        save(AnnouncementPattern.builder()
-            .name("긴급공지")
-            .description("긴급한 공지사항 패턴")
-            .regexPattern("(긴급|urgent|중요|important).*\\s*(공지|알림|안내)")
-            .confidenceWeight(0.9)
-            .active(true)
-            .category("urgent")
-            .createdBy("system")
-            .build());
-        
-        save(AnnouncementPattern.builder()
-            .name("업데이트공지")
-            .description("시스템 업데이트 관련 공지")
-            .regexPattern("(업데이트|update|버전|version).*\\s*(공지|안내|배포)")
-            .confidenceWeight(0.6)
-            .active(true)
-            .category("system")
-            .createdBy("system")
-            .build());
-        
-        save(AnnouncementPattern.builder()
-            .name("시간공지")
-            .description("시간이 포함된 공지 패턴")
-            .regexPattern(".*(\\d{1,2}시|\\d{1,2}:\\d{2}|오전|오후).*\\s*(부터|까지|예정|진행)")
-            .confidenceWeight(0.5)
-            .active(true)
-            .category("schedule")
-            .createdBy("system")
-            .build());
-    }
+    @Query("SELECT p FROM AnnouncementPattern p WHERE p.active = true AND p.confidenceWeight < 0")
+    List<AnnouncementPattern> findExclusionPatterns();
+
+    /**
+     * 패턴 이름으로 조회
+     */
+    Optional<AnnouncementPattern> findByName(String name);
+
+    /**
+     * 카테고리별 패턴 수 조회
+     */
+    @Query("SELECT p.category, COUNT(p) FROM AnnouncementPattern p WHERE p.active = true GROUP BY p.category")
+    List<Object[]> countByCategory();
+
+    /**
+     * 정규식 패턴으로 중복 확인
+     */
+    boolean existsByRegexPatternAndActiveTrue(String regexPattern);
+
+    /**
+     * 우선순위 범위로 조회
+     */
+    List<AnnouncementPattern> findByActiveTrueAndPriorityBetweenOrderByPriorityDesc(Integer minPriority, Integer maxPriority);
+
+    /**
+     * 신뢰도 가중치 범위로 조회
+     */
+    @Query("SELECT p FROM AnnouncementPattern p WHERE p.active = true AND p.confidenceWeight BETWEEN :minWeight AND :maxWeight ORDER BY p.confidenceWeight DESC")
+    List<AnnouncementPattern> findByConfidenceWeightRange(@Param("minWeight") Double minWeight, @Param("maxWeight") Double maxWeight);
+
+    /**
+     * 특정 키워드를 포함하는 패턴 조회
+     */
+    @Query("SELECT p FROM AnnouncementPattern p WHERE p.active = true AND (LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')) OR LOWER(p.regexPattern) LIKE LOWER(CONCAT('%', :keyword, '%')))")
+    List<AnnouncementPattern> findByKeyword(@Param("keyword") String keyword);
+
+    /**
+     * 패턴 통계 조회
+     */
+    @Query("SELECT COUNT(p), AVG(p.confidenceWeight), MAX(p.priority) FROM AnnouncementPattern p WHERE p.active = true")
+    Object[] getPatternStatistics();
 }

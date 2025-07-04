@@ -24,6 +24,7 @@ public class AlertDispatcherService {
     private final List<AlertChannelAdapter> channelAdapters;
     private final AlertFormatterService formatterService;
     private final AsyncExecutor asyncExecutor;
+    private final AlertStreamService alertStreamService;
     
     /**
      * 알림 전송 결과 DTO
@@ -176,6 +177,15 @@ public class AlertDispatcherService {
             
             // 5. 전체 성공 여부 판단 (최소 하나의 채널이 성공하면 성공)
             boolean overallSuccess = channelResults.stream().anyMatch(ChannelResult::isSuccess);
+            
+            // 6. SSE 실시간 스트리밍으로 관리자 대시보드에 알림 전송
+            try {
+                alertStreamService.broadcastAlert(alert);
+                log.debug("Alert broadcasted to SSE clients - ID: {}", alertId);
+            } catch (Exception e) {
+                log.warn("Failed to broadcast alert via SSE - ID: {}, Error: {}", alertId, e.getMessage());
+                // SSE 실패는 전체 결과에 영향주지 않음
+            }
             
             return new DispatchResult(overallSuccess, channelResults, totalTime, alertId);
             
